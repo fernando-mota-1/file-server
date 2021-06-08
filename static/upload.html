@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <title>Uploader</title>
+    </head>
+    <body>
+        <h2>Upload</h2>
+        <form action="/receive" method="post" enctype="multipart/form-data">
+            <label for="target_loc">Parent Directory Name:</label>
+            <input type="text" name="target_loc" id="target_loc_textbox">
+            <br>
+            <label for="filebrowser">File Name:</label>
+            <input type="file" name="filebrowser" id="file_filebrowser">
+            <br>
+            <input type="submit" name="submit" value="Submit">
+        </form>
+    </body>
+</html>
