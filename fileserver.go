@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -13,18 +14,19 @@ import (
 )
 
 var itsLogger *log.Logger
+var itsStorageLocation string
 
 func handleRequests() {
 	http.Handle("/", http.FileServer(http.Dir("./storage")))
-	http.HandleFunc("/upload", uploadHandler)
+	http.Handle("/upload", endPointWrapper(uploadHandler))
+	http.Handle("/receive", endPointWrapper(receiveHandler))
 	itsLogger.Fatal(http.ListenAndServe(":9092", nil))
 }
 
-//TODO: Need to wrap endpoints for logging purposes
 func endPointWrapper(endpoint func(http.ResponseWriter, *http.Request)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
-		itsLogger.Println("Request from \"", r.RemoteAddr, "\" for path \"", r.RequestURI, "\"")
+		itsLogger.Println("\"" + r.Method + "\" request from \"" + r.RemoteAddr + "\" for path \"" + r.RequestURI + "\"")
 		endpoint(w, r)
 	})
 }
@@ -41,16 +43,61 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func receiveHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "POST":
+		file, header, err := r.FormFile("filebrowser")
+		if err != nil {
+			msg := "Error receiving data: " + err.Error()
+			fmt.Fprintln(w, msg)
+			itsLogger.Println(msg)
+			return
+		}
+		targetDir := r.FormValue("target_loc")
+		defer file.Close()
+		parentFolder := filepath.Join(itsStorageLocation, targetDir)
+		err = os.MkdirAll(parentFolder, 0777)
+		if err != nil {
+			msg := "Error creating parent directory \"" + targetDir + "\": " + err.Error()
+			fmt.Fprintln(w, msg)
+			itsLogger.Println(msg)
+			return
+		}
+		out, err := os.Create(filepath.Join(parentFolder, header.Filename))
+		if err != nil {
+			msg := "Error creating file \"" + header.Filename + "\": " + err.Error()
+			fmt.Fprintln(w, msg)
+			itsLogger.Println(msg)
+			return
+		}
+		defer out.Close()
+
+		_, err = io.Copy(out, file)
+		if err != nil {
+			msg := "Error writing to file \"" + header.Filename + "\": " + err.Error()
+			fmt.Fprintln(w, msg)
+			itsLogger.Println(msg)
+			return
+		}
+		fmt.Fprintln(w, "<html><pre>File uploaded successfully: <a href=\"/"+targetDir+"\">Save Location</a></pre></html>")
+	default:
+		msg := fmt.Sprint(r.Method, " method has not yet been implemented")
+		itsLogger.Println(msg)
+		http.Error(w, msg, http.StatusNotImplemented)
+		return
+	}
+}
+
 func initLogger(theLogDir string, theLogFileName string, theMaxFileSize int, theMaxBackups int, theMaxAge int) (*log.Logger, error) {
 	err := os.MkdirAll(theLogDir, 0777)
 	if err != nil {
-		fmt.Println("Error creating log directory: ", err)
+		fmt.Println("Error creating log directory:", err)
 		return nil, err
 	}
 	aLogFile := filepath.Join(theLogDir, theLogFileName)
 	f, err := os.OpenFile(aLogFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0777)
 	if err != nil {
-		fmt.Println("Error opening log file: ", err)
+		fmt.Println("Error opening log file:", err)
 		return nil, err
 	}
 	aLumberJack := &lumberjack.Logger{
@@ -76,9 +123,10 @@ func initLogger(theLogDir string, theLogFileName string, theMaxFileSize int, the
 
 func main() {
 	var err error
+	itsStorageLocation = "./storage"
 	itsLogger, err = initLogger("./logs", "fileserver.log", 5, 3, 28)
 	if err != nil {
-		errMsg := fmt.Sprint("Error: ", err)
+		errMsg := fmt.Sprint("Error:", err)
 		fmt.Println(errMsg)
 		os.Exit(1)
 	}
